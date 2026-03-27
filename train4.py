@@ -13,7 +13,7 @@ class SpaceshipDetector6(nn.Module):
         super().__init__()
         # We match the progression: [1, 2, 4, 8, 16, 32, 64],
         # multiplied by base_filters (8).
-        filters_list = [base_filters * i for i in [1, 2, 4, 8, 16, 32, 64]]
+        filters_list = [base_filters * i for i in [1, 32, 32, 64, 128, 128, 128,256,256,256]]
 
         layers = []
         in_channels = 1  # single-channel input
@@ -35,15 +35,18 @@ class SpaceshipDetector6(nn.Module):
         
         # The final number of channels is filters_list[-1].
         # Flatten and predict 5 params (x, y, yaw, width, height).
-        self.fc = nn.Linear(filters_list[-1], 6)
-
+        self.fc1 = nn.Linear(filters_list[-1], 64)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc2 = nn.Linear(64, 6)
     def forward(self, x):
         # x shape: (batch, 1, 200, 200)
         feats = self.conv_stack(x)
+        feats = self.avgpool(feats)
         # feats shape likely: (batch, 512, 1, 1)
         feats = feats.view(feats.size(0), -1)  # flatten
-        out = self.fc(feats)  # (batch, 5)
-        return out # remember to output 6
+        feats = self.fc1(feats)
+        feats = self.fc2(feats)
+        return feats # remember to output 6
     
 class OrientationLoss(nn.Module):
     """
@@ -111,15 +114,17 @@ def main():
     # Initialize wandb
     # wandb.init(mode="disabled")
     wandb.init(
+        # onlien or disabled
         mode='disabled',
         project="spaceship-detection",
-        name="base-model",
+        name="yolo",
         tags=['mse_loss'],
         config={
             "epochs": 30,
-            "batch_size": 64,
+            # batch size should be 64 
+            "batch_size": 32,
             "learning_rate": 1e-3,
-            "base_filters": 8,
+            "base_filters": 1,
             "steps_per_epoch": 500,
             "val_samples": 100
         }
@@ -131,9 +136,11 @@ def main():
     VAL_SAMPLES = wandb.config.val_samples
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    #IMPORTANT: base_filters=4 breaks everything!
+
     model = SpaceshipDetector6(image_size=200, base_filters=wandb.config.base_filters)
-    
-    # Count and display total parameters
+
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params:,}")
     
@@ -222,7 +229,7 @@ def main():
     #     "spaceship_detector", type="model",
     #     description="Spaceship detection model with yaw prediction"
     # )
-    torch.save(model.state_dict(), "model_yaw_l1_loss.pt")
+    torch.save(model.state_dict(), "model_yolo.pt")
     # model_artifact.add_file("model_yaw.pt")
     # wandb.log_artifact(model_artifact)
     
